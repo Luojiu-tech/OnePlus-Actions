@@ -55,13 +55,14 @@ on:
           - 'oneplus_11r_b'
           - 'oneplus_ace2_b'
           - 'oneplus_ace_pro_v'
+          - 'oneplus_10_pro_v'
           - 'oneplus_10_pro_b'
           - 'oneplus_ace_3v_b'
           - 'oneplus_turbo_6v'
           - 'oneplus_nord_4_b'
           - 'oneplus_nord_ce4_lite_5g'
           - 'oneplus_nord_ce4_b'
-        default: 'oneplus_12_b'
+        default: 'oneplus_10_pro_v'
         
       ANDROID_VERSION:
         description: "内核安卓KMI版本"
@@ -320,8 +321,14 @@ jobs:
           cd kernel_workspace
 
           echo "⬇️ 克隆所需补丁..."
-          if [ "${{ github.event.inputs.SUSFS }}" == "On" ]; then          
-            git clone https://github.com/cctv18/susfs4oki.git -b oki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}
+          if [ "${{ github.event.inputs.SUSFS }}" == "On" ]; then
+            SUSFS_REPO="https://github.com/cctv18/susfs4oki.git"
+            SUSFS_REF="oki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}"
+            if ! git ls-remote --exit-code --heads "$SUSFS_REPO" "$SUSFS_REF" >/dev/null 2>&1; then
+              SUSFS_REF="1.4.2-gki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }}"
+              echo "⚠️ 分支 oki-${{ github.event.inputs.ANDROID_VERSION }}-${{ github.event.inputs.KERNEL_VERSION }} 已不存在，回退到 tag: $SUSFS_REF"
+            fi
+            git clone "$SUSFS_REPO" -b "$SUSFS_REF"
           fi
           git clone https://github.com/Xiaomichael/kernel_patches.git
           git clone https://github.com/ShirkNeko/SukiSU_patch.git
@@ -489,8 +496,7 @@ jobs:
             fi
             echo "✅ SUSFS patches applied"
           else
-            echo "📦 应用MANUAL_HOOK补丁..."
-            patch -p1 -F 3 < scope_min_manual_hooks_v1.6.patch
+            echo "ℹ️ 跳过 MANUAL_HOOK 补丁：SukiSU 4.3.0 已移除 ksu_input_hook 等手动钩子，改用 kprobes 运行时钩取"
           fi
 
           echo "✅ 所有补丁应用完成"
@@ -704,17 +710,28 @@ jobs:
           cp Image $GITHUB_WORKSPACE/AnyKernel3/Image
           echo "✅ KPM补丁应用完成"
 
+      - name: "🔢 Detect SukiSU Version | 识别内核内置KSU版本号"
+        run: |
+          COUNT=$(curl -sI "https://api.github.com/repos/SukiSU-Ultra/SukiSU-Ultra/commits?sha=main&per_page=1" | grep -i '^link:' | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p')
+          if [ -n "$COUNT" ]; then
+            KSUVER=$((40000 + COUNT - 2815))
+          else
+            KSUVER="unknown"
+          fi
+          echo "KSUVER=$KSUVER" >> $GITHUB_ENV
+          echo "🔢 内核内置 KSU 版本号（与 Kbuild 相同算法）: $KSUVER"
+
       - name: "🧠 Set Artifact Name | 设置产物名称"
         id: set_name
         run: |
           if [ "${{ github.event.inputs.lz4kd }}" = "On" ]; then
-            BASE_NAME="${{ github.event.inputs.FEIL }}_SukiSU_Ultra_lz4kd_${{ env.KSUVER }}"
+            BASE_NAME="${{ github.event.inputs.FEIL }}_SukiSU_Ultra_lz4kd_${KSUVER}"
           elif [ "${{ github.event.inputs.KERNEL_VERSION }}" = "6.1" ]; then
-            BASE_NAME="${{ github.event.inputs.FEIL }}_SukiSU_Ultra_lz4_zstd_${{ env.KSUVER }}"
+            BASE_NAME="${{ github.event.inputs.FEIL }}_SukiSU_Ultra_lz4_zstd_${KSUVER}"
           elif [ "${{ github.event.inputs.KERNEL_VERSION }}" = "6.6" ]; then
-            BASE_NAME="${{ github.event.inputs.FEIL }}_SukiSU_Ultra_lz4_${{ env.KSUVER }}"
+            BASE_NAME="${{ github.event.inputs.FEIL }}_SukiSU_Ultra_lz4_${KSUVER}"
           else
-            BASE_NAME="${{ github.event.inputs.FEIL }}_SukiSU_Ultra_${{ env.KSUVER }}"
+            BASE_NAME="${{ github.event.inputs.FEIL }}_SukiSU_Ultra_${KSUVER}"
           fi
           
           if [ "${{ github.event.inputs.SUSFS }}" = "On" ]; then
